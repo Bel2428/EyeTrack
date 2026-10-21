@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plataforma UX - Análisis de Prototipo Figma</title>
+    
+    <!-- Librerías de MediaPipe Face Mesh, Heatmap.js, Chart.js y html2pdf.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/heatmap.js/2.0.0/heatmap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --accent: #e74c3c;
+            --success: #27ae60;
+            --aoi-color: #8e44ad;
+            --bg-color: #f4f6f8;
+        }
+
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg-color); overflow: hidden; display: flex; }
+
+        /* ================= PANEL LATERAL ================= */
+        #sidebar {
+            width: 380px; min-width: 380px; height: 100vh; background: white; border-right: 2px solid #ddd;
+            padding: 15px; box-sizing: border-box; display: flex; flex-direction: column;
+            box-shadow: 2px 0 15px rgba(0,0,0,0.05); z-index: 10000; position: relative;
+            overflow-y: auto;
+        }
+
+        h2 { margin-top: 0; color: var(--primary); font-size: 1.2rem; }
+
+        .btn {
+            display: block; width: 100%; padding: 10px; margin-bottom: 8px;
+            background: var(--primary); color: white; border: none; border-radius: 4px;
+            font-weight: bold; cursor: pointer; transition: 0.3s; flex-shrink: 0; font-size: 0.9rem;
+        }
+        .btn:disabled { background: #95a5a6; cursor: not-allowed; }
+        .btn:hover:not(:disabled) { background: #1a252f; }
+        .btn-danger { background: var(--accent); }
+        .btn-danger:hover:not(:disabled) { background: #c0392b; }
+        .btn-success { background: var(--success); }
+        .btn-success:hover:not(:disabled) { background: #219653; }
+
+        #timer { font-size: 2rem; text-align: center; font-family: monospace; color: var(--primary); margin: 5px 0; font-weight: bold; flex-shrink: 0; }
+
+        .stats-box { background: #f8f9fa; padding: 10px; border-radius: 6px; border: 1px solid #ddd; margin-bottom: 10px; font-size: 0.85rem; flex-shrink: 0; }
+        .stats-box div { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .stats-box span { font-weight: bold; color: var(--primary); }
+
+        .features-list { font-size: 0.75rem; color: #555; margin-bottom: 10px; line-height: 1.3; flex-shrink: 0; }
+        .features-list ul { padding-left: 15px; margin: 3px 0; }
+        .features-list li { margin-bottom: 2px; }
+
+        /* ================= CONTENEDOR DE CÁMARA ================= */
+        #camera-container {
+            width: 100%; height: 160px; min-height: 160px; background: #000; border-radius: 6px;
+            margin-top: auto; position: relative; overflow: hidden; border: 2px solid #ddd;
+            flex-shrink: 0;
+        }
+        
+        #cam-status {
+            position: absolute; top: 0; left: 0; width: 100%; background: rgba(0,0,0,0.8);
+            color: white; text-align: center; padding: 4px 0; font-size: 0.75rem;
+            font-weight: bold; z-index: 2000; transition: background 0.3s;
+        }
+
+        #webcam-video { width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1); }
+
+        /* ================= ÁREA PRINCIPAL ================= */
+        #main-content { flex-grow: 1; position: relative; height: 100vh; box-sizing: border-box; display: flex; flex-direction: column; background: #eef2f5; }
+
+        .figma-wrapper {
+            position: relative; width: 100%; height: 100%; border: none; overflow: hidden;
+        }
+
+        .aoi-target-zone {
+            position: absolute; top: 30%; left: 35%; width: 30%; height: 35%;
+            border: 3px dashed var(--aoi-color); background: rgba(142, 68, 173, 0.08);
+            border-radius: 8px; pointer-events: none; z-index: 5000;
+        }
+        .aoi-target-zone::before {
+            content: "AOI: Componente Clave (CTA/Botón)"; position: absolute; top: -25px; left: 0;
+            background: var(--aoi-color); color: white; padding: 3px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: bold;
+        }
+
+        #heatmap-wrapper { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9998; display: none; }
+        
+        #reticle {
+            position: fixed; width: 20px; height: 20px; border-radius: 50%;
+            border: 2px solid var(--success); background: rgba(39, 174, 96, 0.4);
+            transform: translate(-50%, -50%); pointer-events: none; z-index: 9999; display: none;
+        }
+
+        #toast-container { position: fixed; bottom: 20px; right: 20px; z-index: 30000; display: flex; flex-direction: column; gap: 10px; }
+        .toast { background: var(--primary); color: white; padding: 12px 20px; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); font-size: 0.9rem; animation: slideIn 0.3s ease; }
+        @keyframes slideIn { from { transform: translateY(100px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+        /* Estructura para el reporte en PDF */
+        #pdf-report-container {
+            position: absolute; left: -9999px; top: 0; width: 800px; background: white; padding: 40px; color: #333;
+        }
+        #pdf-report-container h1 { color: var(--primary); border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-top: 0; }
+        .pdf-grid { display: flex; gap: 20px; margin-top: 20px; }
+        .pdf-card { flex: 1; background: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+
+    <div id="sidebar">
+        <h2>Análisis UX - Prototipo Figma</h2>
+        
+        <button id="btn-calibrate" class="btn" onclick="startAutoCalibration()">1. Calibración Automática IA</button>
+        <button id="btn-record" class="btn" onclick="startRecording()" disabled>2. Iniciar Grabación de Prueba</button>
+        <button id="btn-stop" class="btn btn-danger" onclick="stopRecording()" disabled>3. Detener y Analizar</button>
+        <button id="btn-export-img" class="btn" onclick="exportHeatmapImage()" disabled>4. Descargar Mapa de Calor (IMG)</button>
+        <button id="btn-export-pdf" class="btn btn-success" onclick="exportPDFReport()" disabled>5. Exportar Informe Completo (PDF)</button>
+        
+        <div id="timer">00:00</div>
+
+        <div class="stats-box">
+            <div>Fatiga Visual: <span id="val-fatigue">0.0 / 10</span></div>
+            <div>Tasa de Esfuerzo: <span id="val-effort">0%</span></div>
+            <div>Atención en AOI (Figma): <span id="val-aoi">0%</span></div>
+            <div>Zona más Fijada: <span id="val-zone">N/A</span></div>
+        </div>
+
+        <button id="btn-heatmap" class="btn" onclick="toggleHeatmap()" disabled>Ver Mapa de Calor</button>
+
+        <div class="features-list">
+            <strong>Capacidades del Sistema:</strong>
+            <ul>
+                <li>Gráficos de mirada y fijación en tiempo real.[cite: 1]</li>
+                <li>Detección de zonas clave (AOI).[cite: 1]</li>
+                <li>Exportación de imágenes y reportes en PDF.[cite: 1]</li>
+            </ul>
+        </div>
+
+        <div id="camera-container">
+            <div id="cam-status">Listo para calibrar</div>
+            <video id="webcam-video" autoplay playsinline muted></video>
+        </div>
+    </div>
+
+    <div id="main-content">
+        <div class="figma-wrapper" id="figma-container">
+            <div style="display:flex; justify-content:center; align-items:center; height:100%; background:#f5f7fa; flex-direction:column;">
+                <div style="width: 400px; background:white; padding:30px; border-radius:12px; box-shadow:0 10px 25px rgba(0,0,0,0.1); text-align:center;">
+                    <h2 style="color:#2c3e50; margin-bottom:10px;">App Prototipo (Figma View)</h2>
+                    <p style="color:#666; font-size:0.9rem; margin-bottom:20px;">Interactúa con el diseño mientras el sistema registra tus métricas de atención.</p>
+                    <div style="background:#3498db; color:white; padding:12px; border-radius:6px; font-weight:bold;">Botón Principal / CTA</div>
+                </div>
+            </div>
+            <div class="aoi-target-zone" id="aoi-zone"></div>
+        </div>
+        <div id="heatmap-wrapper"></div>
+    </div>
+
+    <!-- Contenedor Oculto para Generar el PDF con Gráficos y Estadísticas -->
+    <div id="pdf-report-container">
+        <h1>Reporte de Resultados UX & Fatiga Visual</h1>
+        <p><strong>Fecha del Test:</strong> <span id="pdf-date"></span></p>
+        <p><strong>Duración Total:</strong> <span id="pdf-duration">00:00</span></p>
+        
+        <div class="pdf-grid">
+            <div class="pdf-card">
+                <h3>Estadísticas Clave</h3>
+                <p>Fatiga Visual: <strong id="pdf-val-fatigue">0.0 / 10</strong></p>
+                <p>Tasa de Esfuerzo: <strong id="pdf-val-effort">0%</strong></p>
+                <p>Atención en AOI: <strong id="pdf-val-aoi">0%</strong></p>
+                <p>Zona Principal de Fijación: <strong id="pdf-val-zone">N/A</strong></p>
+            </div>
+        </div>
+
+        <div style="margin-top: 25px;">
+            <h3>Evolución de Fatiga Visual y Esfuerzo</h3>
+            <div style="width: 100%; height: 260px;">
+                <canvas id="pdfChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div id="reticle"></div>
+    <div id="toast-container"></div>
+
+    <script>
+        let trackingData = [];
+        let isRecording = false;
+        let heatmapInstance = null;
+        let seconds = 0;
+        let timerInterval;
+        let fatigueScore = 0;
+        let totalFixationTime = 0;
+        let aoiTime = 0;
+        let faceMesh = null;
+        let camera = null;
+        let baselineReference = null;
+        let currentGaze = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+        let chartInstance = null;
+        let chartHistory = { labels: [], fatigue: [], effort: [] };
+
+        function showToast(message) {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = 'toast';
+            toast.innerText = message;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 4000);
+        }
+
+        async function startAutoCalibration() {
+            const camStatus = document.getElementById('cam-status');
+            document.getElementById('btn-calibrate').disabled = true;
+
+            try {
+                camStatus.innerText = "Iniciando cámara e IA...";
+                camStatus.style.background = "var(--primary)";
+
+                const videoElement = document.getElementById('webcam-video');
+
+                faceMesh = new FaceMesh({
+                    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
+                });
+
+                faceMesh.setOptions({
+                    maxNumFaces: 1,
+                    refineLandmarks: true,
+                    minDetectionConfidence: 0.6,
+                    minTrackingConfidence: 0.6
+                });
+
+                faceMesh.onResults(handleFaceMeshResults);
+
+                camera = new Camera(videoElement, {
+                    onFrame: async () => {
+                        await faceMesh.send({ image: videoElement });
+                    },
+                    width: 640,
+                    height: 480
+                });
+
+                await camera.start();
+                camStatus.innerText = "Calibrando automáticamente...";
+                
+                setTimeout(() => {
+                    camStatus.innerText = "Calibración Exitosa";
+                    camStatus.style.background = "var(--success)";
+                    document.getElementById('btn-record').disabled = false;
+                    showToast("¡Calibración ocular completada con éxito!");
+                }, 3000);
+
+            } catch (err) {
+                console.error(err);
+                camStatus.innerText = "Error de cámara/IA";
+                camStatus.style.background = "var(--accent)";
+                showToast("No se pudo iniciar el modelo de IA o acceder a la cámara.");
+                document.getElementById('btn-calibrate').disabled = false;
+            }
+        }
+
+        function handleFaceMeshResults(results) {
+            if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) return;
+            const landmarks = results.multiFaceLandmarks[0];
+
+            const leftEyeIris = landmarks[468] || landmarks[159];
+            const rightEyeIris = landmarks[473] || landmarks[386];
+            
+            if (!leftEyeIris || !rightEyeIris) return;
+
+            const avgEyeX = (leftEyeIris.x + rightEyeIris.x) / 2;
+            const avgEyeY = (leftEyeIris.y + rightEyeIris.y) / 2;
+
+            if (!baselineReference) {
+                baselineReference = { x: avgEyeX, y: avgEyeY };
+                return;
+            }
+
+            const deltaX = (avgEyeX - baselineReference.x) * 3500;
+            const deltaY = (avgEyeY - baselineReference.y) * 2500;
+
+            let targetX = (window.innerWidth / 2) - deltaX;
+            let targetY = (window.innerHeight / 2.5) + deltaY;
+
+            currentGaze.x = currentGaze.x * 0.75 + targetX * 0.25;
+            currentGaze.y = currentGaze.y * 0.75 + targetY * 0.25;
+
+            const x = Math.max(20, Math.min(window.innerWidth - 20, currentGaze.x));
+            const y = Math.max(20, Math.min(window.innerHeight - 20, currentGaze.y));
+
+            if (isRecording) {
+                document.getElementById('reticle').style.left = `${x}px`;
+                document.getElementById('reticle').style.top = `${y}px`;
+
+                const camStatusEl = document.getElementById('cam-status');
+                const aoiRect = document.getElementById('aoi-zone').getBoundingClientRect();
+                
+                if (x >= aoiRect.left && x <= aoiRect.right && y >= aoiRect.top && y <= aoiRect.bottom) {
+                    camStatusEl.innerText = "Mirando AOI (Figma)";
+                    camStatusEl.style.background = "var(--aoi-color)";
+                    aoiTime += 50; 
+                } else {
+                    camStatusEl.innerText = "Analizando Prototipo...";
+                    camStatusEl.style.background = "var(--success)";
+                }
+
+                trackingData.push({ x: Math.floor(x), y: Math.floor(y), value: 1 });
+
+                if (trackingData.length > 2) {
+                    const prev = trackingData[trackingData.length - 2];
+                    const dist = Math.hypot(x - prev.x, y - prev.y);
+                    if (dist > 150) fatigueScore += 0.04; 
+                    if (dist < 25) totalFixationTime += 50; 
+                }
+            }
+        }
+
+        function calculateTopZone() {
+            if (trackingData.length === 0) return "N/A";
+            const aoiRect = document.getElementById('aoi-zone').getBoundingClientRect();
+            let countAOI = 0;
+            trackingData.forEach(p => {
+                if (p.x >= aoiRect.left && p.x <= aoiRect.right && p.y >= aoiRect.top && p.y <= aoiRect.bottom) {
+                    countAOI++;
+                }
+            });
+            const percentageAOI = (countAOI / trackingData.length) * 100;
+            return percentageAOI > 30 ? "Componente Clave (CTA)" : "Área General / Contorno";
+        }
+
+        function startRecording() {
+            isRecording = true;
+            trackingData = [];
+            fatigueScore = 0; totalFixationTime = 0; aoiTime = 0; seconds = 0;
+            chartHistory = { labels: [], fatigue: [], effort: [] };
+            
+            document.getElementById('btn-record').disabled = true;
+            document.getElementById('btn-stop').disabled = false;
+            document.getElementById('reticle').style.display = 'block';
+
+            timerInterval = setInterval(() => {
+                seconds++;
+                const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+                const s = String(seconds % 60).padStart(2, '0');
+                document.getElementById('timer').innerText = `${m}:${s}`;
+                
+                const duration = seconds * 1000;
+                const currentFatigue = Math.min(10, fatigueScore);
+                const currentEffort = duration > 0 ? (totalFixationTime / duration) * 100 : 0;
+
+                document.getElementById('val-fatigue').innerText = `${currentFatigue.toFixed(1)} / 10`;
+                document.getElementById('val-effort').innerText = `${currentEffort.toFixed(0)}%`;
+                document.getElementById('val-aoi').innerText = duration > 0 ? `${((aoiTime/duration)*100).toFixed(0)}%` : "0%";
+                document.getElementById('val-zone').innerText = calculateTopZone();
+
+                chartHistory.labels.push(`${m}:${s}`);
+                chartHistory.fatigue.push(currentFatigue.toFixed(1));
+                chartHistory.effort.push(currentEffort.toFixed(0));
+            }, 1000);
+            
+            showToast("Grabación iniciada. Analizando patrones de mirada.");
+        }
+
+        function stopRecording() {
+            isRecording = false;
+            clearInterval(timerInterval);
+            document.getElementById('reticle').style.display = 'none';
+            document.getElementById('btn-stop').disabled = true;
+            document.getElementById('btn-heatmap').disabled = false;
+            document.getElementById('btn-export-img').disabled = false;
+            document.getElementById('btn-export-pdf').disabled = false;
+            
+            renderHeatmap();
+            initChart();
+            showToast("Prueba detenida. Gráficas y zonas de fijación detectadas.");
+        }
+
+        function renderHeatmap() {
+            const wrapper = document.getElementById('heatmap-wrapper');
+            wrapper.style.display = 'block';
+
+            if (!heatmapInstance) {
+                heatmapInstance = h337.create({
+                    container: wrapper,
+                    radius: 50,
+                    maxOpacity: 0.6,
+                    minOpacity: 0,
+                    blur: 0.85
+                });
+            }
+
+            heatmapInstance.setData({
+                max: Math.max(10, trackingData.length / 25),
+                data: trackingData
+            });
+            document.getElementById('btn-heatmap').innerText = "Ocultar Mapa de Calor";
+        }
+
+        function toggleHeatmap() {
+            const wrapper = document.getElementById('heatmap-wrapper');
+            const btn = document.getElementById('btn-heatmap');
+            if (wrapper.style.display === 'none') {
+                wrapper.style.display = 'block';
+                btn.innerText = "Ocultar Mapa de Calor";
+            } else {
+                wrapper.style.display = 'none';
+                btn.innerText = "Ver Mapa de Calor";
+            }
+        }
+
+        function initChart() {
+            const ctx = document.getElementById('pdfChart').getContext('2d');
+            if (chartInstance) chartInstance.destroy();
+
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: chartHistory.labels,
+                    datasets: [
+                        {
+                            label: 'Fatiga Visual (0-10)',
+                            data: chartHistory.fatigue,
+                            borderColor: '#e74c3c',
+                            backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                            tension: 0.2
+                        },
+                        {
+                            label: 'Esfuerzo Visual (%)',
+                            data: chartHistory.effort,
+                            borderColor: '#3498db',
+                            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                            tension: 0.2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false
+                }
+            });
+        }
+
+        function exportHeatmapImage() {
+            const wrapper = document.getElementById('heatmap-wrapper');
+            if (wrapper.style.display === 'none') {
+                wrapper.style.display = 'block';
+            }
+            
+            setTimeout(() => {
+                const canvas = wrapper.querySelector('canvas');
+                if (!canvas) return showToast("No se pudo generar la imagen del mapa de calor.");
+                
+                const imageURL = canvas.toDataURL("image/png");
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", imageURL);
+                downloadAnchorNode.setAttribute("download", "mapa_de_calor_" + Date.now() + ".png");
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+                showToast("Mapa de calor descargado como imagen.");
+            }, 300);
+        }
+
+        function exportPDFReport() {
+            if (trackingData.length === 0) return showToast("No hay datos suficientes para exportar.");
+
+            const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+            const s = String(seconds % 60).padStart(2, '0');
+            document.getElementById('pdf-date').innerText = new Date().toLocaleString();
+            document.getElementById('pdf-duration').innerText = `${m}:${s}`;
+            document.getElementById('pdf-val-fatigue').innerText = document.getElementById('val-fatigue').innerText;
+            document.getElementById('pdf-val-effort').innerText = document.getElementById('val-effort').innerText;
+            document.getElementById('pdf-val-aoi').innerText = document.getElementById('val-aoi').innerText;
+            document.getElementById('pdf-val-zone').innerText = document.getElementById('val-zone').innerText;
+
+            const element = document.getElementById('pdf-report-container');
+            const opt = {
+                margin:       10,
+                filename:     'reporte_ux_analisis_' + Date.now() + '.pdf',
+                image:        { type: 'jpeg', quality: 0.98 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            html2pdf().from(element).set(opt).save().then(() => {
+                showToast("Reporte PDF generado y descargado con éxito.");
+            });
+        }
+    </script>
+</body>
+</html>
